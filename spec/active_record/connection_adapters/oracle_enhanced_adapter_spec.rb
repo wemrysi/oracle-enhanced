@@ -448,3 +448,119 @@ describe "OracleEnhancedAdapter boolean type detection based on string column ty
 
 end
 
+
+describe "OracleEnhancedAdapter Bignum IDs" do
+  before(:all) do
+    ActiveRecord::Base.establish_connection(:adapter => "oracle_enhanced",
+                                            :database => "xe",
+                                            :username => "hr",
+                                            :password => "hr")
+    @conn = ActiveRecord::Base.connection
+    @conn.execute <<-SQL
+      CREATE TABLE test4_employees (
+        id            NUMBER,
+        first_name    VARCHAR2(20),
+        last_name     VARCHAR2(25),
+        email         VARCHAR2(25),
+        phone_number  VARCHAR2(20),
+        hire_date     DATE,
+        job_id        NUMBER,
+        salary        NUMBER,
+        commission_pct  NUMBER(2,2),
+        manager_id    NUMBER(6),
+        department_id NUMBER(4,0),
+        created_at    DATE
+      )
+    SQL
+    @conn.execute <<-SQL
+      CREATE OR REPLACE
+      TRIGGER TEST4_EMPLOYEES_T1
+      BEFORE INSERT ON TEST4_EMPLOYEES
+      REFERENCING NEW AS new 
+      FOR EACH ROW 
+      BEGIN
+        IF :new.id IS NULL THEN
+          SELECT to_number(sys_guid(), 'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' )
+          INTO :new.id
+          FROM dual;
+        END IF;
+      END;
+    SQL
+  end
+  
+  after(:all) do
+    @conn.execute "DROP TABLE test4_employees"
+  end
+
+
+  describe "/ NUMBER values from ActiveRecord model" do
+    before(:each) do
+      class Test4Employee < ActiveRecord::Base
+      end
+    end
+    
+    after(:each) do
+      Object.send(:remove_const, "Test4Employee")
+    end
+    
+    def create_employee4
+      # @employee4 = Test4Employee.create(
+      #   :first_name => "First",
+      #   :last_name => "Last",
+      #   :job_id => 1,
+      #   :salary => 1000
+      # )
+      # @employee4.reload
+      @conn.execute <<-SQL
+        INSERT INTO test4_employees (
+          first_name,
+          last_name,
+          job_id,
+          salary
+        ) VALUES (
+          'First',
+          'Last',
+          1,
+          1000.55
+        )
+      SQL
+      @employee4 = Test4Employee.find(:first)
+    end
+
+    def get_raw_employee4_id
+      @conn.raw_connection.exec("SELECT id FROM test4_employees") {|r| return r[0]}
+    end
+    
+    it "should return BigDecimal value from NUMBER column if emulate_integers_by_column_name is false" do
+      OCI8::BindType::Mapping[:number_unknown_prec] = OCI8::BindType::OraNumber
+      OCI8::BindType::Mapping[:number_no_prec_setting] = OCI8::BindType::OraNumber
+
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.emulate_integers_by_column_name = false
+      create_employee4
+      @employee4.id.class.should == BigDecimal
+    end
+
+    it "should return Bignum value from NUMBER column if column name contains 'id' and emulate_integers_by_column_name is true" do
+      OCI8::BindType::Mapping[:number_unknown_prec] = OCI8::BindType::OraNumber
+      OCI8::BindType::Mapping[:number_no_prec_setting] = OCI8::BindType::OraNumber
+
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.emulate_integers_by_column_name = true
+      create_employee4
+      @employee4.id.class.should == Bignum
+      get_raw_employee4_id.class.should == OraNumber
+      Test4Employee.find(@employee4.id).id.should == @employee4.id
+    end
+    
+    it "should return BigDecimal value from NUMBER column if column name does not contain 'id' and emulate_integers_by_column_name is true" do
+      OCI8::BindType::Mapping[:number_unknown_prec] = OCI8::BindType::OraNumber
+      OCI8::BindType::Mapping[:number_no_prec_setting] = OCI8::BindType::OraNumber
+
+      ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter.emulate_integers_by_column_name = true
+      create_employee4
+      @employee4.salary.should == BigDecimal.new("1000.55")
+      @employee4.salary.class.should == BigDecimal
+    end
+
+  end
+
+end
