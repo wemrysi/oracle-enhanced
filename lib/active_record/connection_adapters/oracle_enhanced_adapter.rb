@@ -536,7 +536,7 @@ begin
 
         # RSI: changed select from user_tables to all_tables - much faster in large data dictionaries
         def tables(name = nil) #:nodoc:
-          select_all("select lower(table_name) from all_tables where owner = sys_context('userenv','session_user')").inject([]) do | tabs, t |
+          select_all("select lower(table_name) from all_tables where owner = sys_context('userenv','current_schema')").inject([]) do | tabs, t |
             tabs << t.to_a.first.last
           end
         end
@@ -984,7 +984,7 @@ begin
   # The OracleConnectionFactory factors out the code necessary to connect and
   # configure an Oracle/OCI connection.
   class OracleEnhancedConnectionFactory #:nodoc:
-    def new_connection(username, password, database, async, prefetch_rows, cursor_sharing, privilege)
+    def new_connection(username, password, database, async, prefetch_rows, cursor_sharing, privilege, schema)
       conn = OCI8.new username, password, database, privilege
       conn.exec %q{alter session set nls_date_format = 'YYYY-MM-DD HH24:MI:SS'}
       conn.exec %q{alter session set nls_timestamp_format = 'YYYY-MM-DD HH24:MI:SS'} rescue nil
@@ -992,6 +992,7 @@ begin
       conn.non_blocking = true if async
       conn.prefetch_rows = prefetch_rows
       conn.exec "alter session set cursor_sharing = #{cursor_sharing}" rescue nil
+      conn.exec "alter session set current_schema = #{schema}" if schema
       conn
     end
   end
@@ -1022,7 +1023,8 @@ begin
       @cursor_sharing = config[:cursor_sharing] || 'similar'
       @factory = factory
       @privilege = config[:privilege]
-      @connection  = @factory.new_connection @username, @password, @database, @async, @prefetch_rows, @cursor_sharing, @privilege
+      @schema = config[:schema]
+      @connection  = @factory.new_connection @username, @password, @database, @async, @prefetch_rows, @cursor_sharing, @privilege, @schema
       super @connection
     end
 
@@ -1041,7 +1043,7 @@ begin
     def reset!
       logoff rescue nil
       begin
-        @connection = @factory.new_connection @username, @password, @database, @async, @prefetch_rows, @cursor_sharing, @privilege
+        @connection = @factory.new_connection @username, @password, @database, @async, @prefetch_rows, @cursor_sharing, @privilege, @schema
         __setobj__ @connection
         @active = true
       rescue
