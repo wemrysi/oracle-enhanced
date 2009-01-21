@@ -20,6 +20,16 @@ describe "OracleEnhancedAdapter establish connection" do
     ActiveRecord::Base.connection.should_not be_nil
     ActiveRecord::Base.connection.class.should == ActiveRecord::ConnectionAdapters::OracleEnhancedAdapter
   end
+
+  it "should connect to database using different schema" do
+    ActiveRecord::Base.establish_connection(:adapter => "oracle_enhanced",
+                                            :database => "xe",
+                                            :username => "hr",
+                                            :password => "hr",
+                                            :schema => "sys")
+    ActiveRecord::Base.connection.should_not be_nil
+    ActiveRecord::Base.connection.select_one("SELECT sys_context('userenv', 'current_schema') schema FROM DUAL")["schema"].should == 'SYS'
+  end
   
 end
 
@@ -445,6 +455,25 @@ describe "OracleEnhancedAdapter table and column comments" do
     [:first_name, :last_name].each do |attr|
       TestEmployee.columns_hash[attr.to_s].comment.should == column_comments[attr]
     end
+  end
+
+end
+
+describe "OracleEnhancedAdapter with schema specified" do
+
+  before(:all) do
+    ActiveRecord::Base.establish_connection(:adapter => "oracle_enhanced",
+                                            :database => "xe",
+                                            :username => "emp",
+                                            :password => "emp",
+                                            :schema => "hr")
+    class Employee < ActiveRecord::Base
+      set_primary_key :employee_id
+    end
+  end
+
+  it "should find tables owned by other schema" do
+    lambda { Employee.first }.should_not raise_error
   end
 
 end
